@@ -48,6 +48,9 @@ module ActiveRecord
           def add_column_options!(sql, options)
             type = options[:type] || ((column = options[:column]) && column.type)
             type = type && type.to_sym
+            if options[:identity] == true
+              sql << " GENERATED ALWAYS AS IDENTITY"
+            end
             # handle case of defaults for CLOB/NCLOB columns, which would otherwise get "quoted" incorrectly
             if options_include_default?(options)
               if type == :text
