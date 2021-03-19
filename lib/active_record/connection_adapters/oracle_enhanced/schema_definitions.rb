@@ -5,7 +5,7 @@ module ActiveRecord
     module OracleEnhanced
       module ColumnMethods
         def primary_key(name, type = :primary_key, **options)
-          # This is a placeholder for future :auto_increment support
+          type = :integer if options[:identity] == true
           super
         end
 
