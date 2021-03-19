@@ -200,7 +200,9 @@ module ActiveRecord
         #   end
 
         def create_table(table_name, id: :primary_key, primary_key: nil, force: nil, **options)
-          create_sequence = id != false
+          options[:primary_key_as_identity] = options.fetch(:primary_key_as_identity, true)
+
+          create_sequence = id != false && options[:primary_key_as_identity] != true
           td = create_table_definition(
             table_name, **options.extract!(:temporary, :options, :as, :comment, :tablespace, :organization)
           )
@@ -208,10 +210,14 @@ module ActiveRecord
           if id && !td.as
             pk = primary_key || Base.get_primary_key(table_name.to_s.singularize)
 
+            options[:identity] = options[:primary_key_as_identity]
+            pk_type = :number if options[:identity] == true
+            pk_type ||= options.fetch(:id, :primary_key)
+
             if pk.is_a?(Array)
               td.primary_keys pk
             else
-              td.primary_key pk, id, **options
+              td.primary_key pk, pk_type, **options
             end
           end
 
@@ -220,7 +226,7 @@ module ActiveRecord
             class << td
               attr_accessor :create_sequence
               def primary_key(*args)
-                self.create_sequence = true
+                self.create_sequence = true unless args.last.is_a?(Hash) and args.last[:identity] == true
                 super(*args)
               end
             end
