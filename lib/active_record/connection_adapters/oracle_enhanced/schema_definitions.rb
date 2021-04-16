@@ -74,6 +74,10 @@ module ActiveRecord
             raise "No virtual column definition found." unless options[:as]
             type = options[:type]
           end
+          if type == :primary_key && options[:identity]
+            type = :integer if options[:identity] == true
+            options[:primary_key] = true
+          end
           super
         end
 
