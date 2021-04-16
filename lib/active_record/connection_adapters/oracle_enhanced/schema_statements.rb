@@ -200,56 +200,64 @@ module ActiveRecord
         #   end
 
         def create_table(table_name, id: :primary_key, primary_key: nil, force: nil, **options)
-          create_sequence = id != false
-          td = create_table_definition(
-            table_name, **options.extract!(:temporary, :options, :as, :comment, :tablespace, :organization)
-          )
+          OracleEnhancedAdapter.using_identity(options[:primary_key_as_identity]) do
+            create_sequence = id != false && OracleEnhancedAdapter.use_identity_for_pk != true
+            td = create_table_definition(
+              table_name, **options.extract!(:temporary, :options, :as, :comment, :tablespace, :organization)
+            )
 
-          if id && !td.as
-            pk = primary_key || Base.get_primary_key(table_name.to_s.singularize)
+            if id && !td.as
+              pk = primary_key || Base.get_primary_key(table_name.to_s.singularize)
 
-            if pk.is_a?(Array)
-              td.primary_keys pk
-            else
-              td.primary_key pk, id, **options
-            end
-          end
-
-          # store that primary key was defined in create_table block
-          unless create_sequence
-            class << td
-              attr_accessor :create_sequence
-              def primary_key(*args)
-                self.create_sequence = true
-                super(*args)
+              if pk.is_a?(Array)
+                td.primary_keys pk
+              else
+                td.primary_key pk, id, **options
               end
             end
-          end
 
-          yield td if block_given?
-          create_sequence = create_sequence || td.create_sequence
+            # store that primary key was defined in create_table block
+            unless create_sequence
+              class << td
+                attr_accessor :create_sequence
+                def primary_key(*args)
+                  if args.last.is_a?(Hash)
+                    options = args.last
 
-          if force && data_source_exists?(table_name)
-            drop_table(table_name, force: force, if_exists: true)
-          else
-            schema_cache.clear_data_source_cache!(table_name.to_s)
-          end
+                    OracleEnhancedAdapter.use_identity_for_pk = options[:identity] unless options[:identity].nil?
+                  end
 
-          execute schema_creation.accept td
-
-          create_sequence_and_trigger(table_name, options) if create_sequence
-
-          if supports_comments? && !supports_comments_in_create?
-            if table_comment = td.comment.presence
-              change_table_comment(table_name, table_comment)
+                  self.create_sequence = !OracleEnhancedAdapter.use_identity_for_pk
+                  super(*args)
+                end
+              end
             end
-            td.columns.each do |column|
-              change_column_comment(table_name, column.name, column.comment) if column.comment.present?
-            end
-          end
-          td.indexes.each { |c, o| add_index table_name, c, **o }
 
-          rebuild_primary_key_index_to_default_tablespace(table_name, options)
+            yield td if block_given?
+            create_sequence = create_sequence || td.create_sequence
+
+            if force && data_source_exists?(table_name)
+              drop_table(table_name, force: force, if_exists: true)
+            else
+              schema_cache.clear_data_source_cache!(table_name.to_s)
+            end
+
+            execute schema_creation.accept td
+
+            create_sequence_and_trigger(table_name, options) if create_sequence
+
+            if supports_comments? && !supports_comments_in_create?
+              if table_comment = td.comment.presence
+                change_table_comment(table_name, table_comment)
+              end
+              td.columns.each do |column|
+                change_column_comment(table_name, column.name, column.comment) if column.comment.present?
+              end
+            end
+            td.indexes.each { |c, o| add_index table_name, c, **o }
+
+            rebuild_primary_key_index_to_default_tablespace(table_name, options)
+          end
         end
 
         def rename_table(table_name, new_name) #:nodoc:
@@ -413,14 +421,16 @@ module ActiveRecord
         end
 
         def add_column(table_name, column_name, type, **options) #:nodoc:
-          type = aliased_types(type.to_s, type)
-          at = create_alter_table table_name
-          at.add_column(column_name, type, **options)
-          add_column_sql = schema_creation.accept at
-          add_column_sql << tablespace_for((type_to_sql(type).downcase.to_sym), nil, table_name, column_name)
-          execute add_column_sql
-          create_sequence_and_trigger(table_name, options) if type && type.to_sym == :primary_key
-          change_column_comment(table_name, column_name, options[:comment]) if options.key?(:comment)
+          OracleEnhancedAdapter.using_identity(options[:identity]) do
+            type = aliased_types(type.to_s, type)
+            at = create_alter_table table_name
+            at.add_column(column_name, type, **options)
+            add_column_sql = schema_creation.accept at
+            add_column_sql << tablespace_for((type_to_sql(type).downcase.to_sym), nil, table_name, column_name)
+            execute add_column_sql
+            create_sequence_and_trigger(table_name, options) if type && type.to_sym == :primary_key && !OracleEnhancedAdapter.use_identity_for_pk
+            change_column_comment(table_name, column_name, options[:comment]) if options.key?(:comment)
+          end
         ensure
           clear_table_columns_cache(table_name)
         end
